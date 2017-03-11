@@ -1,0 +1,2 @@
+# connectedProducts
+WooCommerce plugin
