@@ -1,0 +1,158 @@
+<?php
+/*
+Plugin Name: Connected Products
+Plugin URI:  http://wtyczka.pandzia.pl
+Description: Plugin which connects Products and allow to swich them by buttons below title
+Version:     1.0
+Author:      Mateusz Wojcik
+Author URI:  http://portfolio.pandzia.pl
+License:     GPL2
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
+Text Domain: wporg
+Domain Path: /languages
+*/
+
+/*
+ * License
+ */
+
+/*
+ * No uninstaller (clean your databse manually ;)
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit; // Exit if accessed directly
+}
+
+class WC_ConnectedProducts {
+	
+	private $connect;
+	
+	public function __construct(){
+		$this->chasil_registerHooks();
+	}
+
+	public function chasil_registerHooks(){
+            add_filter('woocommerce_product_data_tabs', array($this, 'chasil_add_connected_products_data_tab'));
+            add_action('woocommerce_product_data_panels', array($this, 'chasil_add_connected_products_product_data_fields'));
+            add_action('woocommerce_process_product_meta', array($this, 'chasil_save_connected_products_data_fields'), 9, 2);
+            add_action('woocommerce_single_product_summary', array($this, 'chasil_get_connected_products'),7);
+            
+            add_action('wp_enqueue_scripts', array($this, 'chasil_addStyle'));
+	}
+
+        /*
+         * Create new tab in product data panel
+         */
+        public function chasil_add_connected_products_data_tab( $product_data_tabs ) {
+            $product_data_tabs['my-custom-tab'] = array(
+                'label' => __( 'Connect Products', 'my_text_domain' ),
+                'target' => 'connected_products_product_data',
+            );
+            return $product_data_tabs;
+        }
+	/*
+         * Create options in data panel (search)
+         */
+        public function chasil_add_connected_products_product_data_fields() {
+            global $woocommerce, $post;
+            ?>
+            <!-- id below must match target registered in above add_my_custom_product_data_tab function -->
+            <div id="connected_products_product_data" class="panel woocommerce_options_panel">
+                <div class="options_group">
+
+                    <p class="form-field">
+                        <label for="conn_prod_ids"><?php _e( 'Connect Products', 'woocommerce' ); ?></label>
+                        <input type="hidden" class="wc-product-search" style="width: 50%;" id="conn_prod_ids" name="conn_prod_ids" data-placeholder="<?php esc_attr_e( 'Search for a product&hellip;', 'woocommerce' ); ?>" data-action="woocommerce_json_search_products" data-multiple="true" data-exclude="<?php echo intval( $post->ID ); ?>" data-selected="<?php
+                            $product_ids = array_filter( array_map( 'absint', (array) get_post_meta( $post->ID, '_conn_prod_ids', true ) ) );
+                            $json_ids    = array();
+
+                            foreach ( $product_ids as $product_id ) {
+                                $product = wc_get_product( $product_id );
+                                if ( is_object( $product ) ) {
+                                    $json_ids[ $product_id ] = wp_kses_post( html_entity_decode( $product->get_formatted_name(), ENT_QUOTES, get_bloginfo( 'charset' ) ) );
+                                }
+                            }
+
+                            echo esc_attr( json_encode( $json_ids ) );
+                        ?>" value="<?php echo implode( ',', array_keys( $json_ids ) ); ?>" /> <?php echo wc_help_tip( __( 'Select product which will be visible in main product below title.', 'woocommerce' ) ); ?>
+                    </p>
+            
+                    <p class="form-field">
+                        Select product which will be visible in main product <strong> below title </strong>
+                    </p>
+                </div>
+            </div>
+            <?php
+        }
+        
+        /*
+         * Save connected products to database
+         */
+        public function chasil_save_connected_products_data_fields($post_id, $post){
+            $connProd = isset( $_POST['conn_prod_ids'] ) ? array_filter( array_map( 'intval', explode( ',', $_POST['conn_prod_ids'] ) ) ) : array();
+            update_post_meta( $post_id, '_conn_prod_ids', $connProd );
+        }
+        
+        
+        /**
+	 * Returns the connected products ids.
+	 *
+	 * @return array
+        */
+	public function get_conn_prod($product) {
+		$connectedProductIds = get_post_meta( $product->id, '_conn_prod_ids', true );
+		return apply_filters( 'woocommerce_product_prod_conn_ids', (array) maybe_unserialize( $connectedProductIds ), $product );
+	}
+        
+        /*
+         * Get connected products from database and display below the product's title
+         */
+        public function chasil_get_connected_products(){
+
+            global $product;
+            //var_dump($product);
+            
+            if ( ! $conn_prod = $this->get_conn_prod($product) ) {
+				var_dump($conn_prod);
+                return; 
+            }
+
+            // documentation https://codex.wordpress.org/Class_Reference/WP_Query
+            $args = array(
+                'post_type'           => 'product',
+                'ignore_sticky_posts' => 1,
+                'no_found_rows'       => 1,
+                'orderby'             => 'name',
+                'post__in'            => $conn_prod,
+                'post__not_in'        => array( $product->id ),
+                'meta_query'          => WC()->query->get_meta_query()
+            );
+
+            $products                    = new WP_Query( $args );
+            //var_dump($products);
+
+            if ( $products->have_posts() ) : ?>
+                <div class="up-sells upsells products">
+                    <?php foreach($products->posts as $connectedProduct) : ?>
+                    <?php //var_dump)$cpmmectedProduct); ?>
+                    <a class="connProdLink" href="<?php echo get_site_url(); ?>/?p=<?php echo $connectedProduct->ID; ?>">
+                        <input name="submit" type="submit" id="submit" class="submit connProdButton" value="<?php echo $connectedProduct->post_title; ?>">
+                    </a>
+                    <?php endforeach ; ?>
+                </div>
+            <?php endif;
+        }
+        
+        /*
+         * Add style
+         */
+        public function chasil_addStyle(){
+            wp_register_style('connected-products-stylesheet', plugins_url('/css/connectedProducts.css', __FILE__));
+            wp_enqueue_style('connected-products-stylesheet');
+        }
+
+}
+
+// Launch
+new WC_ConnectedProducts();
