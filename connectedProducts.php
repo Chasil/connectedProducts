@@ -46,7 +46,7 @@ class WC_ConnectedProducts {
          */
         public function chasil_add_connected_products_data_tab( $product_data_tabs ) {
             $product_data_tabs['my-custom-tab'] = array(
-                'label' => __( 'Connect Products', 'my_text_domain' ),
+                'label' => __( 'Connected products', 'my_text_domain' ),
                 'target' => 'connected_products_product_data',
             );
             return $product_data_tabs;
@@ -55,43 +55,78 @@ class WC_ConnectedProducts {
          * Create options in data panel (search)
          */
         public function chasil_add_connected_products_product_data_fields() {
-            global $woocommerce, $post;
+            global $woocommerce, $post, $wpdb, $product;
+
+
             ?>
-            <!-- id below must match target registered in above add_my_custom_product_data_tab function -->
             <div id="connected_products_product_data" class="panel woocommerce_options_panel">
+
                 <div class="options_group">
-
                     <p class="form-field">
-                        <label for="conn_prod_ids"><?php _e( 'Connect Products', 'woocommerce' ); ?></label>
+                        <label for="conn_prod_ids"><?php _e( 'Produkty', 'woocommerce' ); ?></label>
                         <input type="hidden" class="wc-product-search" style="width: 50%;" id="conn_prod_ids" name="conn_prod_ids" data-placeholder="<?php esc_attr_e( 'Search for a product&hellip;', 'woocommerce' ); ?>" data-action="woocommerce_json_search_products" data-multiple="true" data-exclude="<?php echo intval( $post->ID ); ?>" data-selected="<?php
-                            $product_ids = array_filter( array_map( 'absint', (array) get_post_meta( $post->ID, '_conn_prod_ids', true ) ) );
-                            $json_ids    = array();
+                        $product_ids = array_filter( array_map( 'absint', (array) get_post_meta( $post->ID, '_conn_prod_ids', true ) ) );
+                        $json_ids    = array();
 
-                            foreach ( $product_ids as $product_id ) {
-                                $product = wc_get_product( $product_id );
-                                if ( is_object( $product ) ) {
-                                    $json_ids[ $product_id ] = wp_kses_post( html_entity_decode( $product->get_formatted_name(), ENT_QUOTES, get_bloginfo( 'charset' ) ) );
-                                }
+                        foreach ( $product_ids as $product_id ) {
+                            $product = wc_get_product( $product_id );
+                            if ( is_object( $product ) ) {
+                                $json_ids[ $product_id ] = wp_kses_post( html_entity_decode( $product->get_formatted_name(), ENT_QUOTES, get_bloginfo( 'charset' ) ) );
                             }
+                        }
 
-                            echo esc_attr( json_encode( $json_ids ) );
-                        ?>" value="<?php echo implode( ',', array_keys( $json_ids ) ); ?>" /> <?php echo wc_help_tip( __( 'Select product which will be visible in main product below title.', 'woocommerce' ) ); ?>
+                        echo esc_attr( json_encode( $json_ids ) );
+                        ?>" value="<?php echo implode( ',', array_keys( $json_ids ) ); ?>" /> <?php echo wc_help_tip( __( 'Cross-sells are products which you promote in the cart, based on the current product.', 'woocommerce' ) ); ?>
                     </p>
-            
+                </div>
+                <?php $btnName = $this->get_conn_button($post); ?>
+                <div class="option_group">
                     <p class="form-field">
-                        Select product which will be visible in main product <strong> below title </strong>
+                        <label for="conn_prod_button">Nazwa przycisku</label>
+                        <input type="text" name="chProductButton" id="conn_prod_button" value="<?php echo $btnName[0]; ?>">
                     </p>
                 </div>
             </div>
+
             <?php
         }
         
+        /**
+	 * Get connected products IDs.
+	 *
+	 * @since 3.0.0
+	 * @param  string $context
+	 * @return array
+	 */
+	public function get_conn_prod_ids( $context = 'view' ) {
+            return $this->get_prop( 'conn_prod_ids', $context );
+	}
+        
+        
         /*
-         * Save connected products to database
+         * Save connected products to database + button name
          */
         public function chasil_save_connected_products_data_fields($post_id, $post){
-            $connProd = isset( $_POST['conn_prod_ids'] ) ? array_filter( array_map( 'intval', explode( ',', $_POST['conn_prod_ids'] ) ) ) : array();
-            update_post_meta( $post_id, '_conn_prod_ids', $connProd );
+            if ( isset( $_POST['conn_prod_ids'] ) ) {
+                $connProds = array();
+                $ids     = explode( ',', $_POST['conn_prod_ids'] );
+
+                if ( ! empty( $ids ) ) {
+                    foreach ( $ids as $id ) {
+                        if ( $id && $id > 0 ) {
+                            $connProds[] = $id;
+                        }
+                    }
+                    update_post_meta( $post_id, '_conn_prod_ids', $connProds );
+                } else {
+                    delete_post_meta( $post_id, '_conn_prod_ids' );
+                }
+            }
+            if ( isset ( $_POST['chProductButton']) ){
+                $btnName = array();
+                $btnName[] = $_POST['chProductButton'];
+                update_post_meta( $post_id, '_conn_prod_button', $btnName);
+            }
         }
         
         
@@ -101,23 +136,55 @@ class WC_ConnectedProducts {
 	 * @return array
         */
 	public function get_conn_prod($product) {
-		$connectedProductIds = get_post_meta( $product->id, '_conn_prod_ids', true );
-		return apply_filters( 'woocommerce_product_prod_conn_ids', (array) maybe_unserialize( $connectedProductIds ), $product );
+            $connectedProductIds = get_post_meta( $product->id, '_conn_prod_ids', true );
+            return apply_filters( 'woocommerce_product_prod_conn_ids', (array) maybe_unserialize( $connectedProductIds ), $product );
 	}
+        
+        /*
+         * Return button name
+         * 
+         * @return array
+         */
+        public function get_conn_button($post) {
+            $conn_buttons = get_post_meta( $post->ID, '_conn_prod_button', true);
+            return apply_filters( 'woocommercs_product_prod_conn_buttons', (array) maybe_unserialize ( $conn_buttons ), $product );
+        }
+        
+        /*
+         * Return IDs of connected products buttons names
+         * 
+         * @return array
+         */
+        public function get_conn_buttons($post) {
+            global $product, $post;
+            
+            $conn_prods = $this->get_conn_prod($product);
+            $conn_prods[] = $post->ID;
+            sort($conn_prods);
+            
+            
+            $results = array();
+            
+            foreach($conn_prods as $id) {
+                $productMeta = get_post_meta($id, '_conn_prod_button', true);
+                $results[$id] = $productMeta[0];
+            }
+            return $results;
+        }
         
         /*
          * Get connected products from database and display below the product's title
          */
         public function chasil_get_connected_products(){
 
-            global $product;
-            //var_dump($product);
+            global $product, $post;
             
             if ( ! $conn_prod = $this->get_conn_prod($product) ) {
-				var_dump($conn_prod);
                 return; 
             }
 
+            $buttonsNames = $this->get_conn_buttons($post);
+            
             // documentation https://codex.wordpress.org/Class_Reference/WP_Query
             $args = array(
                 'post_type'           => 'product',
@@ -130,18 +197,17 @@ class WC_ConnectedProducts {
             );
 
             $products                    = new WP_Query( $args );
-            //var_dump($products);
-
-            if ( $products->have_posts() ) : ?>
+            
+            //if ( $products->have_posts() ) : ?>
                 <div class="up-sells upsells products">
-                    <?php foreach($products->posts as $connectedProduct) : ?>
-                    <?php //var_dump)$cpmmectedProduct); ?>
-                    <a class="connProdLink" href="<?php echo get_site_url(); ?>/?p=<?php echo $connectedProduct->ID; ?>">
-                        <input name="submit" type="submit" id="submit" class="submit connProdButton" value="<?php echo $connectedProduct->post_title; ?>">
-                    </a>
+                    
+                    <?php foreach($buttonsNames as $buttonId => $buttonName) : ?>
+                        <a class="connProdLink" href="<?php echo get_site_url(); ?>/?p=<?php echo $buttonId; ?>">
+                            <input name="submit" type="submit" id="submit" class="submit connProdButton <?php if($buttonId === $post->ID) { echo "activeConnButton"; } ?>" value="<?php echo $buttonName; ?>">
+                        </a>
                     <?php endforeach ; ?>
                 </div>
-            <?php endif;
+            <?php //endif;
         }
         
         /*
